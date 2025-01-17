@@ -1,27 +1,28 @@
-const SLACK_WEBHOOK_URL = process.env.NEXT_PUBLIC_SLACK_WEBHOOK_URL;
-
-export const sendSlackMessage = async (channel, message) => {
+export async function sendSlackMessage(channel, message) {
   try {
-    const response = await fetch(SLACK_WEBHOOK_URL, {
+    const response = await fetch('https://slack.com/api/chat.postMessage', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.SLACK_BOT_TOKEN}`
       },
       body: JSON.stringify({
         channel,
         text: message,
-        username: 'Task Dashboard Bot',
-        icon_emoji: ':clipboard:'
+        parse: 'full'
       })
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    const data = await response.json();
+    
+    if (!data.ok) {
+      console.error('Slack API error:', data);
+      throw new Error(data.error || 'Failed to send message to Slack');
     }
 
-    return true;
+    return data;
   } catch (error) {
     console.error('Error sending Slack message:', error);
-    return false;
+    throw error;
   }
-};
+}

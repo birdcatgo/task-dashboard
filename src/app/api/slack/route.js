@@ -1,17 +1,29 @@
-import { NextResponse } from 'next/server';
 import { sendSlackMessage } from '@/utils/slack';
 
 export async function POST(request) {
   try {
     const { channel, message } = await request.json();
+    
+    if (!channel || !message) {
+      return Response.json(
+        { error: 'Channel and message are required' },
+        { status: 400 }
+      );
+    }
+
     const result = await sendSlackMessage(channel, message);
     
-    if (result) {
-      return NextResponse.json({ success: true });
-    } else {
-      return NextResponse.json({ success: false, error: 'Failed to send message' }, { status: 500 });
+    if (!result.ok) {
+      console.error('Slack API error:', result);
+      throw new Error(result.error || 'Failed to send message to Slack');
     }
+
+    return Response.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    console.error('Error sending Slack message:', error);
+    return Response.json(
+      { error: error.message || 'Failed to send message' },
+      { status: 500 }
+    );
   }
 }

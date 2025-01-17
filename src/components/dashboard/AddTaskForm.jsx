@@ -1,83 +1,70 @@
 "use client";
 
 import React, { useState } from 'react';
-import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
-import { Plus } from 'lucide-react';
+import { PlusCircle, ChevronDown } from 'lucide-react';
+
+const TASK_TYPES = {
+  daily: "Daily Task",
+  priority: "Priority Task",
+  queued: "Queued Task"
+};
 
 const AddTaskForm = ({ onAdd }) => {
-  const [newTask, setNewTask] = useState({ 
-    name: '', 
-    type: 'weekly', 
-    notes: '', 
-    priority: 'normal' 
-  });
-  
+  const [name, setName] = useState('');
+  const [showTypeSelect, setShowTypeSelect] = useState(false);
+  const [selectedType, setSelectedType] = useState('daily');
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    
+    onAdd({
+      name: name.trim(),
+      type: selectedType,
+      status: 'Not Started'
+    });
+    setName('');
+  };
+
   return (
-    <Card className="mb-4">
-      <CardHeader>
-        <CardTitle className="text-lg">Add New Task</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <input
-              type="text"
-              placeholder="Task name"
-              className="p-2 border rounded w-full"
-              value={newTask.name}
-              onChange={(e) => setNewTask({ ...newTask, name: e.target.value })}
-            />
-            <div className="flex space-x-2">
-              <select
-                className="p-2 border rounded flex-1"
-                value={newTask.type}
-                onChange={(e) => setNewTask({ ...newTask, type: e.target.value })}
+    <form onSubmit={handleSubmit} className="flex items-center space-x-2">
+      <PlusCircle className="h-4 w-4 text-gray-400" />
+      <input
+        type="text"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Add new task..."
+        className="flex-1 text-xs bg-transparent border-none focus:outline-none focus:ring-0 p-0"
+      />
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setShowTypeSelect(!showTypeSelect)}
+          className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
+        >
+          {TASK_TYPES[selectedType]}
+          <ChevronDown className="h-3 w-3" />
+        </button>
+        
+        {showTypeSelect && (
+          <div className="absolute right-0 top-full mt-1 bg-white shadow-lg rounded-md py-1 z-10">
+            {Object.entries(TASK_TYPES).map(([type, label]) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() => {
+                  setSelectedType(type);
+                  setShowTypeSelect(false);
+                }}
+                className="block w-full text-left px-3 py-1 text-xs hover:bg-gray-100"
               >
-                <option value="daily">Daily Task</option>
-                <option value="priority">Priority Task</option>
-                <option value="weekly">Weekly Task</option>
-              </select>
-              <select
-                className="p-2 border rounded flex-1"
-                value={newTask.priority}
-                onChange={(e) => setNewTask({ ...newTask, priority: e.target.value })}
-              >
-                <option value="low">Low Priority</option>
-                <option value="normal">Normal Priority</option>
-                <option value="high">High Priority</option>
-                <option value="urgent">Urgent</option>
-              </select>
-            </div>
+                {label}
+              </button>
+            ))}
           </div>
-          <textarea
-            placeholder="Add notes or details about the task"
-            className="w-full p-2 border rounded h-20"
-            value={newTask.notes}
-            onChange={(e) => setNewTask({ ...newTask, notes: e.target.value })}
-          />
-          <div className="flex justify-end space-x-2">
-            <button
-              onClick={() => setNewTask({ name: '', type: 'weekly', notes: '', priority: 'normal' })}
-              className="px-4 py-2 text-gray-600 hover:text-gray-800"
-            >
-              Clear
-            </button>
-            <button
-              onClick={() => {
-                if (newTask.name) {
-                  onAdd(newTask);
-                  setNewTask({ name: '', type: 'weekly', notes: '', priority: 'normal' });
-                }
-              }}
-              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center space-x-2"
-            >
-              <Plus className="h-5 w-5" />
-              <span>Add Task</span>
-            </button>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+        )}
+      </div>
+    </form>
   );
 };
 
