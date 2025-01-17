@@ -3,12 +3,13 @@
 import React, { useState, useEffect } from 'react';
 import AddTaskForm from './AddTaskForm';
 import TaskList from './TaskList';
-import { fetchMondayTasks, updateMondayTask, moveTaskToNextDay, MONDAY_API_URL, BOARD_ID, LEAVE_BOARD_ID, getNextWorkingDay } from '@/utils/monday';
+import { fetchMondayTasks, updateMondayTask, moveTaskToNextDay, MONDAY_API_URL, BOARD_ID, LEAVE_BOARD_ID, getNextWorkingDay, duplicateTask } from '@/utils/monday';
 import ClientOnly from '../ClientOnly';
 import { Card } from '../ui/card';
 import StatusStrip from './StatusStrip';
 import LeaveModal from './LeaveModal';
-import { MessageSquare, Send, Check, RotateCw } from 'lucide-react';
+import { MessageSquare, Send, Check, RotateCw, Copy } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 
 const SYSTEM_TASKS = [
   {
@@ -821,6 +822,33 @@ ${inProgress.join('\n')}
     }
   };
 
+  const handleDuplicateToTomorrow = async (taskIds) => {
+    try {
+      const nextDay = getNextWorkingDay();
+      const toastId = toast.loading(`Duplicating ${taskIds.length} tasks to tomorrow...`);
+      
+      for (const taskId of taskIds) {
+        await duplicateTask(taskId, nextDay);
+      }
+      
+      // Refresh tasks after duplication
+      const response = await fetch('/api/monday/tasks');
+      const data = await response.json();
+      
+      if (!response.ok || data.error) {
+        throw new Error(data.error || 'Failed to refresh tasks');
+      }
+      
+      setTasks(data);
+      toast.success(`Successfully duplicated ${taskIds.length} tasks to tomorrow`, {
+        id: toastId
+      });
+    } catch (error) {
+      console.error('Error duplicating tasks:', error);
+      toast.error(`Failed to duplicate tasks: ${error.message}`);
+    }
+  };
+
   return (
     <ClientOnly>
       <div className="min-h-screen bg-gray-50">
@@ -929,9 +957,8 @@ ${inProgress.join('\n')}
             
             <TaskList 
               tasks={tasks.dailyTasks
-                .filter(task => !task.targetDate)  // Remove filter for Done status
+                .filter(task => !task.targetDate)
                 .sort((a, b) => {
-                  // Sort completed tasks to bottom
                   if (a.status === "Done" && b.status !== "Done") return 1;
                   if (a.status !== "Done" && b.status === "Done") return -1;
                   return 0;
@@ -941,8 +968,9 @@ ${inProgress.join('\n')}
               onAddNote={handleAddNote}
               onUpdateStatus={handleUpdateStatus}
               onMoveToNextDay={handleMoveToNextDay}
+              onDuplicateToTomorrow={handleDuplicateToTomorrow}
               onUpdateType={handleUpdateType}
-              showCompletedSeparator={true}  // Add this prop
+              showCompletedSeparator={true}
             />
             
             <TaskList 
@@ -958,7 +986,12 @@ ${inProgress.join('\n')}
               tasks={[
                 ...tasks.queuedTasks,
                 ...tasks.dailyTasks.filter(task => 
-                  task.status === "Follow Up" && 
+                  (task.status === "Follow Up" || task.status === "Working On It") && 
+                  !task.targetDate
+                ),
+                // Add tasks without a status
+                ...tasks.dailyTasks.filter(task => 
+                  !task.status && 
                   !task.targetDate
                 )
               ]}
