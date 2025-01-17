@@ -3,11 +3,15 @@
 import { useEffect, useState } from 'react';
 
 export default function ClientOnly({ children }) {
-  const [isClient, setIsClient] = useState(false);
+  const [hasMounted, setHasMounted] = useState(false);
 
   useEffect(() => {
-    setIsClient(true);
+    setHasMounted(true);
   }, []);
 
-  return isClient ? children : null;
+  if (!hasMounted) {
+    return null;
+  }
+
+  return <>{children}</>;
 } 

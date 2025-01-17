@@ -29,7 +29,7 @@ export const STATUS_ORDER = {
 
 export async function fetchMondayTasks() {
   try {
-    // Updated query syntax to match Monday.com's schema
+    // Updated query to get ALL items and their full details
     const query = `
       query {
         boards (ids: ${BOARD_ID}) {
@@ -37,18 +37,22 @@ export async function fetchMondayTasks() {
             items {
               id
               name
+              state
               column_values {
                 id
+                title
                 text
                 value
+                type
               }
-              group {
-                id
-                title
-              }
-              board {
+              subitems {
                 id
                 name
+                column_values {
+                  id
+                  text
+                  value
+                }
               }
               created_at
               updated_at
@@ -58,57 +62,64 @@ export async function fetchMondayTasks() {
       }
     `;
 
+    console.log('Fetching tasks from Monday.com...');
+
     const response = await fetch(MONDAY_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': process.env.NEXT_MONDAY_API_KEY
       },
-      body: JSON.stringify({ 
-        query,
-        variables: {}
-      })
+      body: JSON.stringify({ query })
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Monday.com API error response:', {
-        status: response.status,
-        statusText: response.statusText,
-        body: errorText
-      });
-      throw new Error(`Monday.com API error: ${response.status} - ${errorText}`);
+      throw new Error(`Monday.com API error: ${response.status}`);
     }
 
     const data = await response.json();
-    console.log('Monday.com raw response:', JSON.stringify(data, null, 2));
+    console.log('Raw Monday.com response:', JSON.stringify(data, null, 2));
 
-    if (!data.data?.boards?.[0]?.items_page?.items) {
-      console.error('Unexpected data structure:', data);
-      throw new Error('Invalid data structure received from Monday.com');
+    if (data.errors) {
+      console.error('Monday.com API errors:', data.errors);
+      throw new Error(data.errors[0].message);
     }
 
-    // Transform the data to match your app's structure
-    const transformedTasks = data.data.boards[0].items_page.items.map(item => {
+    const items = data.data?.boards?.[0]?.items_page?.items || [];
+    console.log('Total items from Monday:', items.length);
+
+    // Transform the data
+    const transformedTasks = items.map(item => {
       const columnValues = item.column_values || [];
       
+      // Get all column values
       const status = columnValues.find(col => 
-        col.id === 'status' ||
+        col.id === 'status' || 
         col.id === 'status_1'
-      )?.text || 'Not Started';
+      )?.text || 'Need To Do';
 
-      const type = determineTaskType(item, status);
-      
-      // Get notes from prompt column and any other text columns
+      const type = columnValues.find(col => 
+        col.id === 'type' || 
+        col.id.includes('type')
+      )?.text?.toLowerCase() || 'daily';
+
+      // Get all text/notes columns
       const notes = columnValues
         .filter(col => 
-          col.id.startsWith('prompt_') || // Capture prompt columns
-          col.id.includes('text') || 
-          col.id.includes('notes')
+          col.id.startsWith('text') || 
+          col.id.includes('notes') ||
+          col.type === "text" ||
+          col.type === "long-text"
         )
         .map(col => col.text)
         .filter(Boolean)
         .join(' | ');
+
+      // Get target date if exists
+      const targetDate = columnValues.find(col => 
+        col.id === 'date' ||
+        col.id.includes('date')
+      )?.text;
 
       return {
         id: item.id,
@@ -116,8 +127,7 @@ export async function fetchMondayTasks() {
         status,
         type,
         notes,
-        boardId: item.board?.id,
-        groupId: item.group?.id,
+        targetDate,
         createdAt: item.created_at,
         updatedAt: item.updated_at
       };
@@ -126,25 +136,30 @@ export async function fetchMondayTasks() {
     console.log('Transformed tasks:', transformedTasks);
 
     // Group tasks by type
-    const groupedTasks = transformedTasks.reduce((acc, task) => {
-      const key = `${task.type}Tasks`;
-      if (!acc[key]) acc[key] = [];
-      acc[key].push(task);
-      return acc;
-    }, {
+    const groupedTasks = {
       dailyTasks: [],
       priorityTasks: [],
       queuedTasks: []
+    };
+
+    transformedTasks.forEach(task => {
+      const taskType = determineTaskType(task, task.status);
+      const key = `${taskType}Tasks`;
+      if (groupedTasks[key]) {
+        groupedTasks[key].push(task);
+      } else {
+        console.warn(`Unknown task type: ${taskType} for task:`, task);
+      }
     });
 
-    // Sort tasks by status order
+    // Sort each group
     Object.keys(groupedTasks).forEach(key => {
       groupedTasks[key].sort((a, b) => {
         return (STATUS_ORDER[a.status] || 99) - (STATUS_ORDER[b.status] || 99);
       });
     });
 
-    console.log('Grouped tasks:', groupedTasks);
+    console.log('Final grouped tasks:', groupedTasks);
     return groupedTasks;
 
   } catch (error) {
@@ -263,8 +278,8 @@ export const moveTaskToNextDay = async (itemId) => {
   }
 };
 
-// Helper function to get next working day (excluding weekends)
-function getNextWorkingDay() {
+// Export the getNextWorkingDay function
+export function getNextWorkingDay() {
   const today = new Date();
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);

@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import AddTaskForm from './AddTaskForm';
 import TaskList from './TaskList';
-import { fetchMondayTasks, updateMondayTask, moveTaskToNextDay, MONDAY_API_URL, BOARD_ID, LEAVE_BOARD_ID } from '@/utils/monday';
+import { fetchMondayTasks, updateMondayTask, moveTaskToNextDay, MONDAY_API_URL, BOARD_ID, LEAVE_BOARD_ID, getNextWorkingDay } from '@/utils/monday';
 import ClientOnly from '../ClientOnly';
 import { Card } from '../ui/card';
 import StatusStrip from './StatusStrip';
@@ -61,10 +61,9 @@ const SYSTEM_TASKS = [
 
 const TASK_SECTIONS = {
   system: "System Tasks",
-  daily: "Daily Tasks",
-  priority: "Priority Tasks",
-  queued: "Queued Tasks",
-  tomorrow: "Tomorrow's Tasks"
+  today: "Today's To Do List",
+  tomorrow: "Tomorrow's To Do List",
+  queued: "Queued Tasks (Not Scheduled)",
 };
 
 const UnifiedDashboard = () => {
@@ -112,15 +111,21 @@ const UnifiedDashboard = () => {
         const response = await fetch('/api/monday/tasks');
         const data = await response.json();
         
-        if (!response.ok) {
-          throw new Error(`Failed to fetch tasks: ${data.details || response.statusText}`);
+        if (!response.ok || data.error) {
+          const errorMessage = data.error || data.details || response.statusText;
+          throw new Error(`Failed to fetch tasks: ${errorMessage}`);
         }
         
-        if (data) {
+        if (data && typeof data === 'object') {
+          console.log('Successfully loaded tasks:', Object.values(data).flat().length);
           setTasks(data);
+          localStorage.setItem('tasks', JSON.stringify(data));
+        } else {
+          throw new Error('Invalid tasks data received');
         }
       } catch (error) {
         console.error('Error loading tasks:', error);
+        alert('Error loading tasks: ' + error.message);
       } finally {
         setIsLoading(false);
       }
@@ -185,15 +190,20 @@ const UnifiedDashboard = () => {
         updatedAt: new Date().toISOString()
       };
 
-      // Update local state first
+      // Update local state
       setTasks(prev => {
+        const newTasks = { ...prev };
         const key = `${newTask.type}Tasks`;
-        const updatedTasks = {
-          ...prev,
-          [key]: [...(prev[key] || []), task]
-        };
         
-        // Sort the tasks using the same logic as in monday.js
+        // Ensure the array exists
+        if (!newTasks[key]) {
+          newTasks[key] = [];
+        }
+        
+        // Add the new task
+        newTasks[key] = [...newTasks[key], task];
+        
+        // Sort tasks
         const statusOrder = {
           'NEW': 0,
           'Need To Do': 1,
@@ -202,26 +212,16 @@ const UnifiedDashboard = () => {
           'Done': 4
         };
 
-        Object.keys(updatedTasks).forEach(key => {
-          updatedTasks[key].sort((a, b) => {
-            return (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99);
-          });
-        });
+        newTasks[key].sort((a, b) => 
+          (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99)
+        );
 
-        return updatedTasks;
+        // Save to localStorage
+        localStorage.setItem('tasks', JSON.stringify(newTasks));
+        
+        return newTasks;
       });
 
-      // Then fetch fresh data in the background
-      try {
-        const tasksResponse = await fetch('/api/monday/tasks');
-        const tasksData = await tasksResponse.json();
-        if (tasksResponse.ok && tasksData) {
-          setTasks(tasksData);
-        }
-      } catch (refreshError) {
-        console.error('Error refreshing tasks:', refreshError);
-        // Don't throw here as the task was already created successfully
-      }
     } catch (error) {
       console.error('Error adding task:', error);
       alert('Failed to add task: ' + error.message);
@@ -406,7 +406,13 @@ ${inProgress.join('\n')}
 
   const handleMoveToNextDay = async (taskId) => {
     try {
-      await moveTaskToNextDay(taskId);
+      // If taskId is an array, move all tasks
+      const taskIds = Array.isArray(taskId) ? taskId : [taskId];
+      
+      // Move each task to next day
+      for (const id of taskIds) {
+        await moveTaskToNextDay(id);
+      }
       
       // Refresh tasks after moving
       const response = await fetch('/api/monday/tasks');
@@ -420,7 +426,8 @@ ${inProgress.join('\n')}
         setTasks(data);
       }
     } catch (error) {
-      console.error('Error moving task to next day:', error);
+      console.error('Error moving task(s) to next day:', error);
+      alert('Failed to move task(s) to next day: ' + error.message);
     }
   };
 
@@ -508,7 +515,7 @@ ${inProgress.join('\n')}
             .filter(task => selectedTasks.has(task.id))
             .map(task => {
               let text = `• ${task.name}`;
-              if (task.notes) text += `\n  _${task.notes}_`;
+              if (task.notes) text += `\n  ${task.notes}`;
               return text;
             });
           
@@ -522,7 +529,7 @@ ${inProgress.join('\n')}
             .filter(task => selectedTasks.has(task.id))
             .map(task => {
               let text = `• ${task.name}`;
-              if (task.notes) text += `\n  _${task.notes}_`;
+              if (task.notes) text += `\n  ${task.notes}`;
               return text;
             });
           
@@ -536,7 +543,7 @@ ${inProgress.join('\n')}
             .filter(task => selectedTasks.has(task.id))
             .map(task => {
               let text = `• ${task.name}`;
-              if (task.notes) text += `\n  _${task.notes}_`;
+              if (task.notes) text += `\n  ${task.notes}`;
               return text;
             });
           
@@ -686,20 +693,17 @@ ${inProgress.join('\n')}
   const getTomorrowsTasks = () => {
     if (!tasks) return [];
     
+    const nextWorkDay = getNextWorkingDay();
+    
     return Object.values(tasks)
       .flat()
       .filter(task => {
-        // Include tasks that are:
-        // 1. Marked for tomorrow
-        // 2. In "Need To Do" status
-        // 3. Not completed
         return (
-          task.targetDate === getNextWorkingDay() ||
+          task.targetDate === nextWorkDay ||
           (task.status === "Need To Do" && !task.type.includes('system'))
         );
       })
       .sort((a, b) => {
-        // Sort by priority first, then by type
         const typeOrder = { priority: 0, daily: 1, queued: 2 };
         return (typeOrder[a.type] || 99) - (typeOrder[b.type] || 99);
       });
@@ -709,63 +713,111 @@ ${inProgress.join('\n')}
     try {
       setIsLoading(true);
       
-      // First, get all boards data
-      const boardsQuery = `
-        query {
-          boards (ids: ${BOARD_ID}) {
-            items_page {
-              cursor
-              items {
-                id
-                name
-                column_values {
-                  id
-                  text
-                  value
-                }
-                subitems {
-                  id
-                  name
-                  column_values {
-                    id
-                    text
-                    value
-                  }
-                }
-              }
-            }
-          }
-        }
-      `;
+      // Clear existing tasks first
+      setTasks(null);
+      localStorage.removeItem('tasks');
 
       const response = await fetch('/api/monday/tasks', {
-        method: 'POST',
+        method: 'GET',
         headers: {
           'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          query: boardsQuery,
-          forceFetch: true  // Add this to bypass any caching
-        })
+          'Cache-Control': 'no-cache'
+        }
       });
 
       const data = await response.json();
       
-      if (!response.ok) {
-        throw new Error(`Failed to sync tasks: ${data.details || response.statusText}`);
+      if (!response.ok || data.error) {
+        const errorMessage = data.error || data.details || response.statusText;
+        throw new Error(`Failed to sync: ${errorMessage}`);
       }
       
-      if (data) {
+      if (data && typeof data === 'object') {
+        console.log('Setting tasks:', data);
         setTasks(data);
-        // Show success feedback with count
+        localStorage.setItem('tasks', JSON.stringify(data));
+        
         const totalTasks = Object.values(data).flat().length;
         alert(`Successfully synced ${totalTasks} tasks with Monday.com`);
+      } else {
+        throw new Error('Invalid tasks data received');
       }
     } catch (error) {
       console.error('Error syncing with Monday:', error);
       alert('Failed to sync with Monday.com: ' + error.message);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSystemTaskUpdate = (taskId) => {
+    const task = SYSTEM_TASKS.find(t => t.id === taskId);
+    if (task) {
+      task.status = task.status === 'Done' ? 'Not Started' : 'Done';
+      // Execute task action if it exists and task is being marked as done
+      if (task.action && task.status === 'Done') {
+        task.action();
+      }
+      // Force re-render
+      setTasks(prev => ({...prev}));
+    }
+  };
+
+  const handleUpdateType = async (taskId, newType) => {
+    try {
+      // Update Monday.com first
+      const mutation = `
+        mutation {
+          change_column_value(
+            board_id: ${BOARD_ID}, 
+            item_id: ${taskId}, 
+            column_id: "type", 
+            value: ${JSON.stringify(JSON.stringify({ type: newType }))}
+          ) {
+            id
+          }
+        }
+      `;
+
+      const response = await fetch('/api/monday/update-type', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ mutation })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update task type on Monday.com');
+      }
+
+      // Then update local state
+      setTasks(prev => {
+        const newTasks = { ...prev };
+        let updatedTask = null;
+        
+        // Find and remove task from old type
+        Object.keys(newTasks).forEach(key => {
+          newTasks[key] = newTasks[key].filter(task => {
+            if (task.id === taskId) {
+              updatedTask = { ...task, type: newType };
+              return false;
+            }
+            return true;
+          });
+        });
+
+        // Add task to new type
+        if (updatedTask) {
+          const newTypeKey = `${newType}Tasks`;
+          newTasks[newTypeKey] = [...(newTasks[newTypeKey] || []), updatedTask];
+        }
+
+        return newTasks;
+      });
+    } catch (error) {
+      console.error('Error updating task type:', error);
+      alert('Failed to update task type: ' + error.message);
     }
   };
 
@@ -826,25 +878,6 @@ ${inProgress.join('\n')}
                   </div>
                 </div>
 
-                {/* Center Section: Office Hours */}
-                <div className="flex items-center space-x-3 text-xs text-gray-500">
-                  <span title="New Zealand">
-                    🇳🇿 {new Date().toLocaleTimeString('en-NZ', { 
-                      hour: '2-digit', 
-                      minute: '2-digit',
-                      hour12: false 
-                    })}
-                  </span>
-                  <span title="United States">
-                    🇺🇸 {new Date().toLocaleTimeString('en-US', { 
-                      hour: '2-digit', 
-                      minute: '2-digit',
-                      hour12: false,
-                      timeZone: 'America/Los_Angeles'
-                    })}
-                  </span>
-                </div>
-
                 {/* Right Section: Actions */}
                 <div className="flex items-center space-x-2 ml-4">
                   <button 
@@ -891,42 +924,50 @@ ${inProgress.join('\n')}
               tasks={SYSTEM_TASKS}
               title={TASK_SECTIONS.system}
               onAddNote={handleAddNote}
-              onUpdateStatus={(taskId) => {
-                const task = SYSTEM_TASKS.find(t => t.id === taskId);
-                if (task) {
-                  task.status = task.status === 'Done' ? 'Not Started' : 'Done';
-                  if (task.action && task.status === 'Done') {
-                    task.action();
-                  }
-                  setTasks(prev => ({...prev}));
-                }
-              }}
+              onUpdateStatus={handleSystemTaskUpdate}
             />
+            
+            <TaskList 
+              tasks={tasks.dailyTasks
+                .filter(task => !task.targetDate)  // Remove filter for Done status
+                .sort((a, b) => {
+                  // Sort completed tasks to bottom
+                  if (a.status === "Done" && b.status !== "Done") return 1;
+                  if (a.status !== "Done" && b.status === "Done") return -1;
+                  return 0;
+                })
+              }
+              title={TASK_SECTIONS.today}
+              onAddNote={handleAddNote}
+              onUpdateStatus={handleUpdateStatus}
+              onMoveToNextDay={handleMoveToNextDay}
+              onUpdateType={handleUpdateType}
+              showCompletedSeparator={true}  // Add this prop
+            />
+            
             <TaskList 
               tasks={getTomorrowsTasks()}
               title={TASK_SECTIONS.tomorrow}
               onAddNote={handleAddNote}
               onUpdateStatus={handleUpdateStatus}
               isPreview={true}
+              description="Includes scheduled tasks and follow-ups"
             />
+            
             <TaskList 
-              tasks={tasks.dailyTasks} 
-              title={TASK_SECTIONS.daily}
-              onAddNote={handleAddNote}
-              onUpdateStatus={handleUpdateStatus}
-              onMoveToNextDay={handleMoveToNextDay}
-            />
-            <TaskList 
-              tasks={tasks.priorityTasks} 
-              title={TASK_SECTIONS.priority}
-              onAddNote={handleAddNote}
-              onUpdateStatus={handleUpdateStatus}
-            />
-            <TaskList 
-              tasks={tasks.queuedTasks}
+              tasks={[
+                ...tasks.queuedTasks,
+                ...tasks.dailyTasks.filter(task => 
+                  task.status === "Follow Up" && 
+                  !task.targetDate
+                )
+              ]}
               title={TASK_SECTIONS.queued}
               onAddNote={handleAddNote}
               onUpdateStatus={handleUpdateStatus}
+              onMoveToNextDay={handleMoveToNextDay}
+              onUpdateType={handleUpdateType}
+              description="Tasks not scheduled for today or tomorrow"
             />
           </div>
         </div>

@@ -2,33 +2,53 @@ import { fetchMondayTasks } from '@/utils/monday';
 
 export async function GET() {
   try {
-    const apiKey = process.env.NEXT_MONDAY_API_KEY;
+    // Add debug logging
+    console.log('Starting tasks fetch from Monday.com...');
     
-    // Debug environment variables (safely)
-    console.log({
-      'API Key exists': !!apiKey,
-      'API Key length': apiKey?.length,
-      'API Key starts with': apiKey?.substring(0, 10) + '...',
-      'Environment': process.env.NODE_ENV,
-      'Is running on server': typeof window === 'undefined'
+    const tasks = await fetchMondayTasks();
+    
+    // Validate tasks structure
+    if (!tasks || typeof tasks !== 'object') {
+      console.error('Invalid tasks data:', tasks);
+      return Response.json(
+        { error: 'Invalid tasks data received' },
+        { status: 500 }
+      );
+    }
+
+    // Log successful response
+    console.log(`Successfully fetched ${Object.values(tasks).flat().length} tasks`);
+    
+    return new Response(JSON.stringify(tasks), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+      },
     });
 
-    const tasks = await fetchMondayTasks();
-    return Response.json(tasks);
   } catch (error) {
-    console.error('Detailed error in /api/monday/tasks:', {
+    // Detailed error logging
+    console.error('Error in /api/monday/tasks:', {
       message: error.message,
-      type: error.constructor.name
+      stack: error.stack,
+      name: error.name
     });
-    
-    return Response.json(
+
+    return new Response(
+      JSON.stringify({ 
+        error: 'Failed to fetch tasks from Monday.com',
+        details: error.message 
+      }),
       { 
-        error: 'Failed to fetch tasks', 
-        details: error.message
-      }, 
-      { 
-        status: error.message.includes('401') ? 401 : 500 
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json',
+        },
       }
     );
   }
+}
+
+export async function POST(request) {
+  return GET();
 } 
