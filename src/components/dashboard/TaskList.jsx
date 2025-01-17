@@ -22,6 +22,9 @@ const TaskItem = ({ task, onUpdateStatus, onAddNote, onMoveToNextDay, isPreview,
       <span className={task.status === "Done" ? "line-through text-gray-500" : ""}>
         {task.name}
       </span>
+      <span className={`text-xs px-1.5 py-0.5 rounded-full ${getStatusColor(task.status)}`}>
+        {task.status}
+      </span>
       {task.time && (
         <span className="text-xs text-gray-400">
           @ {task.time}
@@ -85,6 +88,24 @@ const TaskItem = ({ task, onUpdateStatus, onAddNote, onMoveToNextDay, isPreview,
     )}
   </div>
 );
+
+// Add this helper function for status colors
+const getStatusColor = (status) => {
+  switch (status) {
+    case 'NEW':
+      return 'bg-purple-100 text-purple-800';
+    case 'Need To Do':
+      return 'bg-blue-100 text-blue-800';
+    case 'Working On It':
+      return 'bg-yellow-100 text-yellow-800';
+    case 'Follow Up':
+      return 'bg-orange-100 text-orange-800';
+    case 'Done':
+      return 'bg-green-100 text-green-800';
+    default:
+      return 'bg-gray-100 text-gray-800';
+  }
+};
 
 const TaskList = ({ 
   tasks, 

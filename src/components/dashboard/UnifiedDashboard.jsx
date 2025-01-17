@@ -62,9 +62,8 @@ const SYSTEM_TASKS = [
 
 const TASK_SECTIONS = {
   system: "System Tasks",
-  today: "Today's To Do List",
-  tomorrow: "Tomorrow's To Do List",
-  queued: "Queued Tasks (Not Scheduled)",
+  today: "Today's Tasks",
+  tomorrow: "Tomorrow's Tasks",
 };
 
 const UnifiedDashboard = () => {
@@ -956,9 +955,24 @@ ${inProgress.join('\n')}
             />
             
             <TaskList 
-              tasks={tasks.dailyTasks
-                .filter(task => !task.targetDate)
+              tasks={[
+                ...tasks.dailyTasks,
+                ...tasks.priorityTasks,
+                ...tasks.queuedTasks
+              ].filter(task => !task.targetDate)
                 .sort((a, b) => {
+                  // Sort by status priority
+                  const statusOrder = {
+                    'NEW': 0,
+                    'Need To Do': 1,
+                    'Working On It': 2,
+                    'Follow Up': 3,
+                    'Done': 4
+                  };
+                  const statusDiff = (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99);
+                  if (statusDiff !== 0) return statusDiff;
+                  
+                  // If same status, sort completed tasks to bottom
                   if (a.status === "Done" && b.status !== "Done") return 1;
                   if (a.status !== "Done" && b.status === "Done") return -1;
                   return 0;
@@ -980,27 +994,6 @@ ${inProgress.join('\n')}
               onUpdateStatus={handleUpdateStatus}
               isPreview={true}
               description="Includes scheduled tasks and follow-ups"
-            />
-            
-            <TaskList 
-              tasks={[
-                ...tasks.queuedTasks,
-                ...tasks.dailyTasks.filter(task => 
-                  (task.status === "Follow Up" || task.status === "Working On It") && 
-                  !task.targetDate
-                ),
-                // Add tasks without a status
-                ...tasks.dailyTasks.filter(task => 
-                  !task.status && 
-                  !task.targetDate
-                )
-              ]}
-              title={TASK_SECTIONS.queued}
-              onAddNote={handleAddNote}
-              onUpdateStatus={handleUpdateStatus}
-              onMoveToNextDay={handleMoveToNextDay}
-              onUpdateType={handleUpdateType}
-              description="Tasks not scheduled for today or tomorrow"
             />
           </div>
         </div>
