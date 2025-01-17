@@ -8,7 +8,7 @@ import ClientOnly from '../ClientOnly';
 import { Card } from '../ui/card';
 import StatusStrip from './StatusStrip';
 import LeaveModal from './LeaveModal';
-import { MessageSquare, Send, Check } from 'lucide-react';
+import { MessageSquare, Send, Check, RotateCw } from 'lucide-react';
 
 const SYSTEM_TASKS = [
   {
@@ -58,6 +58,14 @@ const SYSTEM_TASKS = [
     time: '16:30' // 4:30 PM NZT
   }
 ];
+
+const TASK_SECTIONS = {
+  system: "System Tasks",
+  daily: "Daily Tasks",
+  priority: "Priority Tasks",
+  queued: "Queued Tasks",
+  tomorrow: "Tomorrow's Tasks"
+};
 
 const UnifiedDashboard = () => {
   // Initialize with null/empty values
@@ -501,7 +509,6 @@ ${inProgress.join('\n')}
             .map(task => {
               let text = `• ${task.name}`;
               if (task.notes) text += `\n  _${task.notes}_`;
-              if (task.category !== 'Daily') text += ` [${task.category}]`;
               return text;
             });
           
@@ -516,7 +523,6 @@ ${inProgress.join('\n')}
             .map(task => {
               let text = `• ${task.name}`;
               if (task.notes) text += `\n  _${task.notes}_`;
-              if (task.category !== 'Daily') text += ` [${task.category}]`;
               return text;
             });
           
@@ -531,7 +537,6 @@ ${inProgress.join('\n')}
             .map(task => {
               let text = `• ${task.name}`;
               if (task.notes) text += `\n  _${task.notes}_`;
-              if (task.category !== 'Daily') text += ` [${task.category}]`;
               return text;
             });
           
@@ -678,6 +683,92 @@ ${inProgress.join('\n')}
     </div>
   );
 
+  const getTomorrowsTasks = () => {
+    if (!tasks) return [];
+    
+    return Object.values(tasks)
+      .flat()
+      .filter(task => {
+        // Include tasks that are:
+        // 1. Marked for tomorrow
+        // 2. In "Need To Do" status
+        // 3. Not completed
+        return (
+          task.targetDate === getNextWorkingDay() ||
+          (task.status === "Need To Do" && !task.type.includes('system'))
+        );
+      })
+      .sort((a, b) => {
+        // Sort by priority first, then by type
+        const typeOrder = { priority: 0, daily: 1, queued: 2 };
+        return (typeOrder[a.type] || 99) - (typeOrder[b.type] || 99);
+      });
+  };
+
+  const handleSyncWithMonday = async () => {
+    try {
+      setIsLoading(true);
+      
+      // First, get all boards data
+      const boardsQuery = `
+        query {
+          boards (ids: ${BOARD_ID}) {
+            items_page {
+              cursor
+              items {
+                id
+                name
+                column_values {
+                  id
+                  text
+                  value
+                }
+                subitems {
+                  id
+                  name
+                  column_values {
+                    id
+                    text
+                    value
+                  }
+                }
+              }
+            }
+          }
+        }
+      `;
+
+      const response = await fetch('/api/monday/tasks', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          query: boardsQuery,
+          forceFetch: true  // Add this to bypass any caching
+        })
+      });
+
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(`Failed to sync tasks: ${data.details || response.statusText}`);
+      }
+      
+      if (data) {
+        setTasks(data);
+        // Show success feedback with count
+        const totalTasks = Object.values(data).flat().length;
+        alert(`Successfully synced ${totalTasks} tasks with Monday.com`);
+      }
+    } catch (error) {
+      console.error('Error syncing with Monday:', error);
+      alert('Failed to sync with Monday.com: ' + error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <ClientOnly>
       <div className="min-h-screen bg-gray-50">
@@ -757,6 +848,17 @@ ${inProgress.join('\n')}
                 {/* Right Section: Actions */}
                 <div className="flex items-center space-x-2 ml-4">
                   <button 
+                    onClick={handleSyncWithMonday}
+                    className={`text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded inline-flex items-center gap-1 ${
+                      isLoading ? 'opacity-50 cursor-not-allowed' : ''
+                    }`}
+                    disabled={isLoading}
+                    title="Sync with Monday.com"
+                  >
+                    <RotateCw className={`h-3 w-3 ${isLoading ? 'animate-spin' : ''}`} />
+                    Sync
+                  </button>
+                  <button 
                     onClick={handleStartDay}
                     className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded inline-flex items-center gap-1"
                     title="Start Day"
@@ -787,38 +889,42 @@ ${inProgress.join('\n')}
           <div className="space-y-2">
             <TaskList 
               tasks={SYSTEM_TASKS}
-              title="System Tasks"
+              title={TASK_SECTIONS.system}
               onAddNote={handleAddNote}
               onUpdateStatus={(taskId) => {
-                // Reset system tasks at the start of each day
                 const task = SYSTEM_TASKS.find(t => t.id === taskId);
                 if (task) {
                   task.status = task.status === 'Done' ? 'Not Started' : 'Done';
-                  // Execute task action if it exists and task is being marked as done
                   if (task.action && task.status === 'Done') {
                     task.action();
                   }
-                  // Force re-render
                   setTasks(prev => ({...prev}));
                 }
               }}
             />
             <TaskList 
+              tasks={getTomorrowsTasks()}
+              title={TASK_SECTIONS.tomorrow}
+              onAddNote={handleAddNote}
+              onUpdateStatus={handleUpdateStatus}
+              isPreview={true}
+            />
+            <TaskList 
               tasks={tasks.dailyTasks} 
-              title="Daily Tasks" 
+              title={TASK_SECTIONS.daily}
               onAddNote={handleAddNote}
               onUpdateStatus={handleUpdateStatus}
               onMoveToNextDay={handleMoveToNextDay}
             />
             <TaskList 
               tasks={tasks.priorityTasks} 
-              title="Priority Tasks" 
+              title={TASK_SECTIONS.priority}
               onAddNote={handleAddNote}
               onUpdateStatus={handleUpdateStatus}
             />
             <TaskList 
               tasks={tasks.queuedTasks}
-              title="Queued Tasks"
+              title={TASK_SECTIONS.queued}
               onAddNote={handleAddNote}
               onUpdateStatus={handleUpdateStatus}
             />
