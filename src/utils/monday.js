@@ -220,32 +220,66 @@ export async function fetchMondayTasks() {
   }
 }
 
-export const updateMondayTask = async (itemId, columnId, value) => {
-  const mutation = `
-    mutation {
-      change_column_value(
-        board_id: ${BOARD_ID}, 
-        item_id: ${itemId}, 
-        column_id: "${columnId}", 
-        value: ${JSON.stringify(JSON.stringify(value))}
-      ) {
-        id
-      }
-    }
-  `;
-
+const makeRequest = async (query) => {
   try {
-    const response = await fetch(MONDAY_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': process.env.NEXT_MONDAY_API_KEY
-      },
-      body: JSON.stringify({ 
-        query: mutation,
-        variables: {}
-      })
-    });
+    if (typeof window === 'undefined') {
+      // Server-side request
+      const response = await fetch(MONDAY_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': process.env.NEXT_MONDAY_API_KEY
+        },
+        body: JSON.stringify({ query })
+      });
+      return response;
+    } else {
+      // Client-side request
+      const response = await fetch('/api/monday/proxy', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ query })
+      });
+      return response;
+    }
+  } catch (error) {
+    console.error('API request failed:', error);
+    throw error;
+  }
+};
+
+export const updateMondayTask = async (itemId, columnId, value) => {
+  try {
+    // If changing to Follow Up status, also set the date to tomorrow
+    let columnValues = {};
+    
+    if (columnId === 'status' && value.label === 'Follow Up') {
+      const nextWorkingDay = getNextWorkingDay();
+      columnValues = {
+        status: value,
+        date: { date: nextWorkingDay }
+      };
+    } else {
+      columnValues = {
+        [columnId]: value
+      };
+    }
+
+    const mutation = `
+      mutation {
+        change_multiple_column_values(
+          board_id: ${BOARD_ID},
+          item_id: ${itemId},
+          column_values: ${JSON.stringify(JSON.stringify(columnValues))}
+        ) {
+          id
+        }
+      }
+    `;
+
+    const response = await makeRequest(mutation);
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -369,102 +403,4 @@ export async function fetchUserProfile() {
         photo_original
       }
     }
-  `;
-
-  try {
-    const response = await fetch(MONDAY_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': process.env.NEXT_MONDAY_API_KEY
-      },
-      body: JSON.stringify({ query })
-    });
-
-    const data = await response.json();
-    
-    // Check for errors in the response
-    if (data.errors) {
-      console.error('Monday.com API error:', data.errors);
-      return null;
-    }
-
-    // Check if me data exists
-    if (!data.data?.me) {
-      console.error('No user profile data returned');
-      return null;
-    }
-
-    return data.data.me;
-  } catch (error) {
-    console.error('Error fetching user profile:', error);
-    return null;
-  }
-}
-
-// Add this function to duplicate a task
-export const duplicateTask = async (itemId, targetDate) => {
-  try {
-    const query = `
-      query {
-        items(ids: [${itemId}]) {
-          name
-          column_values {
-            id
-            value
-            text
-          }
-        }
-      }
-    `;
-
-    // Get original task data
-    const response = await fetch(MONDAY_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': process.env.NEXT_MONDAY_API_KEY
-      },
-      body: JSON.stringify({ query })
-    });
-
-    const data = await response.json();
-    const originalTask = data.data.items[0];
-
-    // Create new task
-    const createMutation = `
-      mutation {
-        create_item (
-          board_id: ${BOARD_ID},
-          item_name: "${originalTask.name}",
-          column_values: ${JSON.stringify(JSON.stringify({
-            status: { label: "Need To Do" },
-            date: { date: targetDate },
-            type: "daily"
-          }))}
-        ) {
-          id
-        }
-      }
-    `;
-
-    const createResponse = await fetch(MONDAY_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': process.env.NEXT_MONDAY_API_KEY
-      },
-      body: JSON.stringify({ query: createMutation })
-    });
-
-    const createData = await createResponse.json();
-    if (createData.errors) {
-      throw new Error(createData.errors[0].message);
-    }
-
-    return createData.data.create_item.id;
-  } catch (error) {
-    console.error('Error duplicating task:', error);
-    throw error;
-  }
-};
+  `

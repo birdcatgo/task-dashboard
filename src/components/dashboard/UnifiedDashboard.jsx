@@ -229,31 +229,55 @@ const UnifiedDashboard = () => {
   };
 
   const handleUpdateStatus = async (taskId) => {
-    const statusOrder = [
-      "Need To Do",
-      "Working On It",
-      "Follow Up",
-      "Done"
-    ];
-    
-    setTasks(prev => {
-      const newTasks = { ...prev };
-      Object.keys(newTasks).forEach(key => {
-        newTasks[key] = newTasks[key].map(task => {
-          if (task.id === taskId) {
-            const currentIndex = statusOrder.indexOf(task.status);
-            const nextStatus = statusOrder[(currentIndex + 1) % statusOrder.length];
-            
-            // Update Monday.com
-            updateMondayTask(taskId, 'status', { label: nextStatus });
-            
-            return { ...task, status: nextStatus };
-          }
-          return task;
-        });
+    try {
+      const statusOrder = [
+        "Need To Do",
+        "Working On It",
+        "Follow Up",
+        "Done"
+      ];
+      
+      // Find the task and its current status
+      let task = null;
+      Object.values(tasks).forEach(taskList => {
+        const found = taskList.find(t => t.id === taskId);
+        if (found) task = found;
       });
-      return newTasks;
-    });
+
+      if (!task) return;
+
+      const currentIndex = statusOrder.indexOf(task.status);
+      const nextStatus = statusOrder[(currentIndex + 1) % statusOrder.length];
+
+      // Update Monday.com first
+      await updateMondayTask(taskId, 'status', { label: nextStatus });
+
+      // Update local state
+      setTasks(prev => {
+        const newTasks = { ...prev };
+        Object.keys(newTasks).forEach(key => {
+          newTasks[key] = newTasks[key].map(t => {
+            if (t.id === taskId) {
+              // If status is changing to Follow Up, it will be moved to tomorrow automatically
+              return { 
+                ...t, 
+                status: nextStatus,
+                targetDate: nextStatus === 'Follow Up' ? getNextWorkingDay() : t.targetDate 
+              };
+            }
+            return t;
+          });
+        });
+        return newTasks;
+      });
+
+      // Show success message
+      toast.success(`Task status updated to ${nextStatus}`);
+
+    } catch (error) {
+      console.error('Error updating status:', error);
+      toast.error('Failed to update task status');
+    }
   };
 
   const handleAddNote = async (taskId, note) => {
@@ -514,13 +538,13 @@ ${inProgress.join('\n')}
           const completedItems = groupedByStatus.completed
             .filter(task => selectedTasks.has(task.id))
             .map(task => {
-              let text = `• ${task.name}`;
-              if (task.notes) text += `\n  ${task.notes}`;
+              let text = `• *${task.name}*`;
+              if (task.notes) text += `\n  _${task.notes}_`;
               return text;
             });
           
           if (completedItems.length > 0) {
-            sections.push('*Completed Today:*\n' + completedItems.join('\n'));
+            sections.push('🎯 *Completed Today:*\n' + completedItems.join('\n\n'));
           }
         }
 
@@ -528,13 +552,13 @@ ${inProgress.join('\n')}
           const inProgressItems = groupedByStatus.inProgress
             .filter(task => selectedTasks.has(task.id))
             .map(task => {
-              let text = `• ${task.name}`;
-              if (task.notes) text += `\n  ${task.notes}`;
+              let text = `• *${task.name}*`;
+              if (task.notes) text += `\n  _${task.notes}_`;
               return text;
             });
           
           if (inProgressItems.length > 0) {
-            sections.push('*In Progress:*\n' + inProgressItems.join('\n'));
+            sections.push('🚀 *In Progress:*\n' + inProgressItems.join('\n\n'));
           }
         }
 
@@ -542,17 +566,17 @@ ${inProgress.join('\n')}
           const queuedItems = groupedByStatus.queued
             .filter(task => selectedTasks.has(task.id))
             .map(task => {
-              let text = `• ${task.name}`;
-              if (task.notes) text += `\n  ${task.notes}`;
+              let text = `• *${task.name}*`;
+              if (task.notes) text += `\n  _${task.notes}_`;
               return text;
             });
           
           if (queuedItems.length > 0) {
-            sections.push('*Queued/Follow Up:*\n' + queuedItems.join('\n'));
+            sections.push('📋 *Follow Up Tomorrow:*\n' + queuedItems.join('\n\n'));
           }
         }
 
-        const text = `*End of Day Update* 📝\n\n${sections.join('\n\n')}`.trim();
+        const text = `📝 *End of Day Update*\n\n${sections.join('\n\n')}`.trim();
         setSummaryText(text);
       };
 

@@ -7,23 +7,9 @@ import { toast } from 'react-hot-toast';
 
 const TaskItem = ({ task, onUpdateStatus, onAddNote, onMoveToNextDay, isPreview, onUpdateType }) => (
   <div className="flex items-center text-sm py-0.5 hover:bg-gray-50 rounded group">
-    <button 
-      onClick={() => onUpdateStatus(task.id)} 
-      className="focus:outline-none mr-2"
-    >
-      {task.status === "Done" ? (
-        <Check className="h-4 w-4 text-green-500" />
-      ) : (
-        <div className="w-4 h-4 border rounded hover:border-gray-400" />
-      )}
-    </button>
-
     <div className="flex-1 flex items-center min-w-0 space-x-2">
       <span className={task.status === "Done" ? "line-through text-gray-500" : ""}>
         {task.name}
-      </span>
-      <span className={`text-xs px-1.5 py-0.5 rounded-full ${getStatusColor(task.status)}`}>
-        {task.status}
       </span>
       {task.time && (
         <span className="text-xs text-gray-400">
@@ -57,7 +43,7 @@ const TaskItem = ({ task, onUpdateStatus, onAddNote, onMoveToNextDay, isPreview,
     </div>
 
     {!task.isSystem && (
-      <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100">
+      <div className="flex items-center space-x-2 opacity-0 group-hover:opacity-100">
         <select
           value={task.type}
           onChange={(e) => onUpdateType?.(task.id, e.target.value)}
@@ -68,7 +54,14 @@ const TaskItem = ({ task, onUpdateStatus, onAddNote, onMoveToNextDay, isPreview,
           <option value="queued">Queued</option>
         </select>
         
-        {/* Add ability to move any task to tomorrow */}
+        <button
+          onClick={() => onUpdateStatus(task.id)}
+          className={`px-2 py-1 rounded text-xs ${getStatusColor(task.status)}`}
+          title="Click to change status"
+        >
+          {task.status}
+        </button>
+
         {task.status !== 'Done' && (
           <button
             onClick={() => onMoveToNextDay(task.id)}
