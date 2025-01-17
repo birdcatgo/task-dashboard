@@ -4,8 +4,9 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '../ui/card';
 
 const StatusBanner = () => {
-  const [status, setStatus] = useState('out-of-office');
-  const [mounted, setMounted] = useState(false);
+  const [isClient, setIsClient] = useState(false);
+  const [status, setStatus] = useState('out-of-office'); // Default status for SSR
+  const [currentTimes, setCurrentTimes] = useState({});
   const [officeHours] = useState({ 
     start: '07:00', 
     end: '15:00', 
@@ -13,28 +14,26 @@ const StatusBanner = () => {
     workDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
   });
 
-  // Only run time-based effects after component mounts on client
+  // Only run after component mounts on client
   useEffect(() => {
-    setMounted(true);
+    setIsClient(true);
     
     const updateStatus = () => {
       const now = new Date();
-      
-      // Get current time in NZ
-      const nzTime = new Intl.DateTimeFormat('en-US', {
+      const nzOptions = { 
         timeZone: 'Pacific/Auckland',
         hour: '2-digit',
         minute: '2-digit',
         hour12: false
-      }).format(now);
+      };
       
+      const nzTime = new Intl.DateTimeFormat('en-US', nzOptions).format(now);
       const currentHour = parseInt(nzTime.split(':')[0]);
       const currentDay = now.toLocaleDateString('en-US', { 
         timeZone: 'Pacific/Auckland', 
         weekday: 'long' 
       });
 
-      // Automatic status updates
       if (!officeHours.workDays.includes(currentDay)) {
         setStatus('out-of-office');
       } else if (currentHour < 7 || currentHour >= 15) {
@@ -44,11 +43,30 @@ const StatusBanner = () => {
       }
     };
 
-    updateStatus(); // Run immediately
-    const timer = setInterval(updateStatus, 60000); // Update every minute
+    // Initial update
+    updateStatus();
     
+    // Set up interval for updates
+    const timer = setInterval(updateStatus, 60000);
     return () => clearInterval(timer);
   }, [officeHours]);
+
+  // Update timezone displays
+  useEffect(() => {
+    if (!isClient) return;
+
+    const updateTimes = () => {
+      const times = {};
+      commonTimezones.forEach(tz => {
+        times[tz.zone] = formatTimeForTimezone(officeHours.start, tz.zone);
+      });
+      setCurrentTimes(times);
+    };
+
+    updateTimes();
+    const timer = setInterval(updateTimes, 60000);
+    return () => clearInterval(timer);
+  }, [isClient, officeHours]);
 
   const getStatusColor = () => {
     switch(status) {
@@ -68,7 +86,7 @@ const StatusBanner = () => {
   ];
 
   const formatTimeForTimezone = (time, timezone) => {
-    if (!mounted) return time; // Return static time during SSR
+    if (!isClient) return '...'; // Return placeholder during SSR
     
     try {
       const [hours, minutes] = time.split(':');
@@ -120,7 +138,11 @@ const StatusBanner = () => {
                 <div key={tz.zone} className="text-sm">
                   <div className="font-medium">{tz.label}</div>
                   <div className="text-gray-600">
-                    {formatTimeForTimezone(officeHours.start, tz.zone)} - {formatTimeForTimezone(officeHours.end, tz.zone)}
+                    {isClient ? (
+                      `${formatTimeForTimezone(officeHours.start, tz.zone)} - ${formatTimeForTimezone(officeHours.end, tz.zone)}`
+                    ) : (
+                      'Loading...'
+                    )}
                   </div>
                 </div>
               ))}
